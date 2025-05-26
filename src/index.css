@@ -1,0 +1,85 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: "Inter", system-ui, sans-serif;
+  }
+
+  body {
+    @apply text-gray-800;
+  }
+}
+
+@layer utilities {
+  .animate-fadeIn {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+
+  .animate-fadeInDelay {
+    animation: fadeIn 0.5s ease-in-out 0.2s both;
+  }
+
+  .animate-fadeInDelay2 {
+    animation: fadeIn 0.5s ease-in-out 0.4s both;
+  }
+
+  .animate-fadeInDelay3 {
+    animation: fadeIn 0.5s ease-in-out 0.6s both;
+  }
+
+  .animate-fadeInRight {
+    animation: fadeInRight 0.7s ease-out 0.3s both;
+  }
+
+  .animate-messageIn {
+    animation: messageIn 0.5s ease-out forwards;
+  }
+
+  .headline-transition {
+    transition: opacity 0.5s ease-in-out;
+  }
+
+  .headline-active {
+    opacity: 1;
+  }
+
+  .headline-inactive {
+    opacity: 0;
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeInRight {
+  from {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes messageIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
