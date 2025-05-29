@@ -253,9 +253,7 @@ const HomePage = () => {
                 🚀 Launching Soon
               </div>
               <div className="relative h-[150px]">
-                <h1
-                  className={`text-4xl md:text-5xl lg:text-6xl font-bold leading-tight `}
-                >
+                <h1 className={`text-5xl xl:text-6xl font-bold leading-tight `}>
                   <span className="text-white z-10 absolute">Sell Better.</span>{" "}
                   <span
                     className={`text-teal-400 headline-transition ${
@@ -355,10 +353,10 @@ const HomePage = () => {
                       </div>
                     )}
                     {conversationIndex >= conversationFlow.length && (
-                      <div className="text-center md:gap-1 px-4 py-2 mt-4 h-[52px] flex items-center justify-center bg-teal-900/30 text-white rounded-lg">
-                        Deal closed! Now{" "}
+                      <div className="text-center gap-1 px-4 py-2 mt-4 h-[52px] flex items-center justify-center bg-teal-900/30 text-white rounded-lg">
+                        Call ended. Now{" "}
                         <span className="cursor-pointer underline text-teal-400 font-medium hover:text-teal-500">
-                          break down the feedback
+                          break down the call
                         </span>
                       </div>
                     )}
