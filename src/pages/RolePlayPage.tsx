@@ -14,6 +14,7 @@ import ScenarioSelector from "../components/roleplay/ScenarioSelector";
 import AudioVisualizer from "../components/roleplay/AudioVisualizer";
 import FeedbackPanel from "../components/roleplay/FeedbackPanel";
 import { scenarios } from "../data/scenarios";
+import { sendTranscriptToChatGPT } from "../utils/chatgpt";
 
 // Definición de tipos para Speech Recognition
 interface SpeechRecognitionEvent extends Event {
@@ -242,9 +243,9 @@ const RolePlayPage = () => {
     }
   };
 
-  const stopRecording = () => {
+  const stopRecording = async () => {
     if (mediaRecorderRef.current && audioStreamRef.current) {
-      mediaRecorderRef.current.onstop = () => {
+      mediaRecorderRef.current.onstop = async () => {
         const audioBlob = new Blob(audioChunks, {
           type: "audio/webm;codecs=opus",
         });
@@ -253,6 +254,14 @@ const RolePlayPage = () => {
 
         console.log("Audio grabado:", audioBlob);
         console.log("Transcripción final:", transcription);
+
+        // Send transcript to ChatGPT and get feedback
+        try {
+          const feedback = await sendTranscriptToChatGPT(transcription);
+          console.log("ChatGPT Feedback:", feedback);
+        } catch (error) {
+          console.error("Error getting feedback from ChatGPT:", error);
+        }
       };
 
       mediaRecorderRef.current.stop();
