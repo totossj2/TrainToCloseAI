@@ -8,6 +8,7 @@ import HomePage from "./pages/HomePage";
 import RolePlayPage from "./pages/RolePlayPage";
 import DashboardPage from "./pages/DashboardPage";
 import AuthCallback from "./components/auth/AuthCallback";
+import RolePlayPageV2 from "./pages/RolePlayPageV2";
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
               <Route path="/role-play" element={<RolePlayPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/auth/callback" element={<AuthCallback />} />
+              <Route path="/role-play-v2" element={<RolePlayPageV2 />} />
             </Routes>
           </main>
           <Footer />

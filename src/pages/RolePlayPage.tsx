@@ -13,8 +13,21 @@ import {
 import ScenarioSelector from "../components/roleplay/ScenarioSelector";
 import AudioVisualizer from "../components/roleplay/AudioVisualizer";
 import FeedbackPanel from "../components/roleplay/FeedbackPanel";
+import SessionHeader from "../components/roleplay/SessionHeader";
+import ConversationArea from "../components/roleplay/ConversationArea";
+import AudioControls from "../components/roleplay/AudioControls";
 import { scenarios } from "../data/scenarios";
-import { sendTranscriptToChatGPT } from "../utils/chatgpt";
+import {
+  simulateSalesConversation,
+  simulateSalesConversationForUI,
+} from "../utils/chatgpt";
+import { toast } from "react-hot-toast";
+
+// Custom hooks
+import useSpeechRecognition from "../hooks/useSpeechRecognition";
+import useAudioRecording from "../hooks/useAudioRecording";
+import useConversation from "../hooks/useConversation";
+import useSessionTimer from "../hooks/useSessionTimer";
 
 // Definición de tipos para Speech Recognition
 interface SpeechRecognitionEvent extends Event {
@@ -62,283 +75,85 @@ declare global {
 }
 
 const RolePlayPage = () => {
+  // Scenario state
   const [selectedScenario, setSelectedScenario] = useState(scenarios[0]);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [currentStep, setCurrentStep] = useState(0);
-  const [conversation, setConversation] = useState<
-    { speaker: "ai" | "user"; text: string }[]
-  >([]);
-  const [showSettings, setShowSettings] = useState(false);
   const [difficulty, setDifficulty] = useState("medium");
-  const [sessionTime, setSessionTime] = useState(0);
+  const [userInput, setUserInput] = useState("");
 
-  // Add new state and refs for audio recording and speech recognition
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
-  const [audioUrl, setAudioUrl] = useState<string | null>(null);
-  const [transcription, setTranscription] = useState<string>("");
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioStreamRef = useRef<MediaStream | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // Custom hooks
+  const {
+    transcription,
+    isListening,
+    error: speechError,
+    startListening,
+    stopListening,
+    resetTranscription,
+  } = useSpeechRecognition();
 
-  // Simulate loading conversation history
+  const {
+    isRecording,
+    audioUrl,
+    startRecording,
+    stopRecording,
+    playRecording,
+    error: audioError,
+  } = useAudioRecording();
+
+  const {
+    conversation,
+    chatHistory,
+    isLoading,
+    currentStep,
+    handleUserMessage,
+    handleTranscriptionMessage,
+    simulateAIResponse,
+    resetConversation,
+  } = useConversation();
+
+  const {
+    sessionTime,
+    isRunning,
+    startTimer,
+    stopTimer,
+    resetTimer,
+    formatTime,
+  } = useSessionTimer();
+
+  // Initialize conversation when scenario changes
   useEffect(() => {
     if (selectedScenario) {
-      // Initialize with the AI's first message
-      setConversation([
-        {
-          speaker: "ai",
-          text: selectedScenario.initialPrompt,
-        },
-      ]);
-      setCurrentStep(0);
+      resetConversation(selectedScenario.initialPrompt);
+      resetTimer();
     }
-  }, [selectedScenario]);
-
-  // Timer for session duration
-  useEffect(() => {
-    let timer: number;
-    if (isRecording && !isPaused) {
-      timer = window.setInterval(() => {
-        setSessionTime((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [isRecording, isPaused]);
-
-  const initializeSpeechRecognition = () => {
-    try {
-      // Forzar el uso de webkitSpeechRecognition ya que es más ampliamente soportado
-      const SpeechRecognitionAPI = window.webkitSpeechRecognition;
-      if (!SpeechRecognitionAPI) {
-        throw new Error(
-          "webkitSpeechRecognition no está soportado en este navegador"
-        );
-      }
-
-      const recognition = new SpeechRecognitionAPI();
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.lang = "es-ES";
-
-      recognition.onstart = () => {
-        console.log("Reconocimiento de voz iniciado");
-      };
-
-      recognition.onend = () => {
-        console.log("Reconocimiento de voz finalizado");
-        // Reiniciar si todavía estamos grabando
-        if (isRecording) {
-          recognition.start();
-        }
-      };
-
-      recognition.onaudiostart = () => {
-        console.log("Captura de audio iniciada");
-      };
-
-      recognition.onaudioend = () => {
-        console.log("Captura de audio finalizada");
-      };
-
-      recognition.onspeechstart = () => {
-        console.log("Voz detectada - comenzando a escuchar");
-      };
-
-      recognition.onspeechend = () => {
-        console.log("Voz no detectada - dejando de escuchar");
-      };
-
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
-        console.log("Evento onresult recibido:", event);
-        let finalTranscript = "";
-        let interimTranscript = "";
-
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-            console.log("Texto final:", transcript);
-          } else {
-            interimTranscript += transcript;
-            console.log("Texto intermedio:", transcript);
-          }
-        }
-
-        if (finalTranscript) {
-          setTranscription((prev) => {
-            const newTranscription = prev
-              ? `${prev} ${finalTranscript}`
-              : finalTranscript;
-            console.log("Transcripción actualizada:", newTranscription);
-            return newTranscription;
-          });
-        }
-      };
-
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error("Error en el reconocimiento de voz:", event.error);
-      };
-
-      return recognition;
-    } catch (error) {
-      console.error("Error al inicializar el reconocimiento de voz:", error);
-      return null;
-    }
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
-  };
+  }, [selectedScenario, resetConversation, resetTimer]);
 
   const handleScenarioChange = (scenario: (typeof scenarios)[0]) => {
     setSelectedScenario(scenario);
-    setIsRecording(false);
-    setIsPaused(false);
-    setSessionTime(0);
+    stopRecording();
+    stopListening();
+    resetTranscription();
   };
 
-  const startRecording = async () => {
-    try {
-      // Inicializar el reconocimiento de voz primero
-      const recognition = initializeSpeechRecognition();
-      if (recognition) {
-        recognitionRef.current = recognition;
-        recognition.start();
-        console.log("Reconocimiento de voz iniciado correctamente");
-      }
-
-      // Iniciar la grabación de audio
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioStreamRef.current = stream;
-
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: "audio/webm;codecs=opus",
-      });
-
-      setAudioChunks([]);
-      setTranscription("");
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          console.log("Chunk de audio recibido:", event.data.size, "bytes");
-          setAudioChunks((chunks) => [...chunks, event.data]);
-        }
-      };
-
-      mediaRecorder.start(1000);
-      mediaRecorderRef.current = mediaRecorder;
-
-      setIsRecording(true);
-      setIsPaused(false);
-    } catch (error) {
-      console.error("Error al iniciar la grabación:", error);
-    }
-  };
-
-  const stopRecording = async () => {
-    if (mediaRecorderRef.current && audioStreamRef.current) {
-      mediaRecorderRef.current.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, {
-          type: "audio/webm;codecs=opus",
-        });
-        const url = URL.createObjectURL(audioBlob);
-        setAudioUrl(url);
-
-        console.log("Audio grabado:", audioBlob);
-        console.log("Transcripción final:", transcription);
-
-        // Send transcript to ChatGPT and get feedback
-        try {
-          const feedback = await sendTranscriptToChatGPT(transcription);
-          console.log("ChatGPT Feedback:", feedback);
-        } catch (error) {
-          console.error("Error getting feedback from ChatGPT:", error);
-        }
-      };
-
-      mediaRecorderRef.current.stop();
-      audioStreamRef.current.getTracks().forEach((track) => track.stop());
-
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
-    }
-    setIsRecording(false);
-    setIsPaused(false);
-  };
-
-  const playRecording = () => {
-    if (audioUrl && audioRef.current) {
-      audioRef.current.play();
-    }
-  };
-
-  const simulateUserResponse = () => {
-    // In a real implementation, this would be replaced by actual speech recognition
-    const userResponses = [
-      "I understand your concerns about implementation time. We'll work closely with your team to ensure a smooth transition.",
-      "That's a great question. Our pricing is competitive and we offer flexible payment options.",
-      "I appreciate your feedback. Let me show you how our solution addresses that specific pain point.",
-      "Based on what you've shared, I think our premium tier would be the best fit for your needs.",
-    ];
-
-    const randomResponse =
-      userResponses[Math.floor(Math.random() * userResponses.length)];
-
-    setConversation((prev) => [
-      ...prev,
-      { speaker: "user", text: randomResponse },
-    ]);
-
-    // Simulate AI response after a delay
-    setTimeout(() => {
-      simulateAIResponse();
-    }, 1500);
-  };
-
-  const simulateAIResponse = () => {
-    // In a real implementation, this would be a call to an AI service
-    const aiResponses = [
-      "That sounds promising, but I'm still concerned about the total cost of ownership. Can you break down all the fees?",
-      "What about training? Will our team need extensive training to use your solution?",
-      "I've had bad experiences with similar products in the past. How is yours different?",
-      "I need to discuss this with my team. What materials can you provide to help me present this internally?",
-    ];
-
-    const randomResponse =
-      aiResponses[Math.floor(Math.random() * aiResponses.length)];
-
-    setConversation((prev) => [
-      ...prev,
-      { speaker: "ai", text: randomResponse },
-    ]);
-    setCurrentStep((prev) => prev + 1);
-  };
-
-  const skipCurrentStep = () => {
-    simulateAIResponse();
-  };
-
-  const endSession = () => {
-    setIsRecording(false);
-    setIsPaused(false);
-    // In a real implementation, we would save the session and analyze performance
-  };
-
-  const toggleRecording = async () => {
+  const handleToggleRecording = async () => {
     if (!isRecording) {
       await startRecording();
+      startListening();
+      startTimer();
     } else {
-      stopRecording();
+      await stopRecording();
+      stopListening();
+      if (transcription) {
+        await handleTranscriptionMessage(transcription, selectedScenario.title);
+      }
+      resetTranscription();
     }
+  };
+
+  const handleEndSession = () => {
+    stopRecording();
+    stopListening();
+    stopTimer();
+    // Additional cleanup if needed
   };
 
   return (
@@ -477,134 +292,40 @@ const RolePlayPage = () => {
           {/* Middle Panel - Conversation Interface */}
           <div className="lg:col-span-2">
             <div className="bg-white rounded-xl shadow-md overflow-hidden">
-              {/* Scenario Header */}
-              <div className="p-6 border-b border-gray-200">
-                <div className="flex justify-between items-center mb-4">
-                  <div>
-                    <h3 className="text-xl font-semibold text-gray-900">
-                      {selectedScenario.title}
-                    </h3>
-                    <p className="text-sm text-gray-600">
-                      {selectedScenario.description}
-                    </p>
-                  </div>
-                  <div className="flex items-center">
-                    <div className="flex items-center text-sm text-gray-500 mr-4">
-                      <Clock size={16} className="mr-1" />
-                      <span>{formatTime(sessionTime)}</span>
-                    </div>
-                    <button
-                      onClick={endSession}
-                      className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 text-sm rounded-md transition-colors duration-200"
-                    >
-                      End Session
-                    </button>
-                  </div>
-                </div>
-                <div className="flex items-center text-sm">
-                  <span className="text-gray-700 mr-2">Your role:</span>
-                  <span className="font-medium text-indigo-700">
-                    {selectedScenario.userRole}
-                  </span>
-                  <span className="mx-2 text-gray-400">|</span>
-                  <span className="text-gray-700 mr-2">AI role:</span>
-                  <span className="font-medium text-teal-700">
-                    {selectedScenario.aiRole}
-                  </span>
-                </div>
-              </div>
+              <SessionHeader
+                title={selectedScenario.title}
+                description={selectedScenario.description}
+                userRole={selectedScenario.userRole}
+                aiRole={selectedScenario.aiRole}
+                sessionTime={sessionTime}
+                onEndSession={handleEndSession}
+              />
 
-              {/* Conversation Area */}
-              <div className="p-6 h-96 overflow-y-auto">
-                <div className="space-y-4">
-                  {conversation.map((message, index) => (
-                    <div
-                      key={index}
-                      className={`flex ${
-                        message.speaker === "ai"
-                          ? "justify-start"
-                          : "justify-end"
-                      }`}
-                    >
-                      <div
-                        className={`max-w-xs md:max-w-md rounded-xl px-4 py-3 ${
-                          message.speaker === "ai"
-                            ? "bg-gray-100 text-gray-800"
-                            : "bg-indigo-600 text-white"
-                        }`}
-                      >
-                        <p className="text-sm">{message.text}</p>
-                      </div>
-                    </div>
-                  ))}
+              <ConversationArea
+                conversation={conversation}
+                isRecording={isRecording}
+                isPaused={!isListening}
+                transcription={transcription}
+                isLoading={isLoading}
+              />
 
-                  {isRecording && !isPaused && (
-                    <div className="flex justify-start">
-                      <div className="max-w-xs md:max-w-md rounded-xl px-4 py-3 bg-gray-100">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-2 h-2 bg-teal-500 rounded-full animate-pulse"></div>
-                          <div className="w-2 h-2 bg-teal-500 rounded-full animate-pulse delay-75"></div>
-                          <div className="w-2 h-2 bg-teal-500 rounded-full animate-pulse delay-150"></div>
-                          <span className="text-sm text-gray-500">
-                            AI is listening...
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Audio Visualizer and Controls */}
               <div className="p-6 border-t border-gray-200">
                 <div className="mb-4">
-                  <AudioVisualizer isActive={isRecording && !isPaused} />
+                  <AudioVisualizer isActive={isRecording && isListening} />
                 </div>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <button
-                      onClick={toggleRecording}
-                      className={`h-12 w-12 rounded-full flex items-center justify-center ${
-                        isRecording
-                          ? "bg-red-500 text-white animate-pulse"
-                          : "bg-indigo-600 text-white"
-                      }`}
-                    >
-                      {isRecording ? <Pause size={20} /> : <Mic size={20} />}
-                    </button>
-                    {audioUrl && (
-                      <button
-                        onClick={playRecording}
-                        className="h-10 w-10 rounded-full bg-green-500 flex items-center justify-center text-white hover:bg-green-600 transition-colors duration-200"
-                      >
-                        <Play size={18} />
-                      </button>
-                    )}
-                    <button
-                      onClick={skipCurrentStep}
-                      className="h-10 w-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-700 hover:bg-gray-200 transition-colors duration-200"
-                    >
-                      <SkipForward size={18} />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={simulateUserResponse} // This is just for the demo
-                      className="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 transition-colors duration-200"
-                    >
-                      Simulate Response
-                    </button>
-                    <button
-                      onClick={() => {}}
-                      className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition-colors duration-200"
-                    >
-                      <Save size={16} className="inline mr-1" />
-                      Save Session
-                    </button>
-                  </div>
-                </div>
+                <AudioControls
+                  isRecording={isRecording}
+                  isPaused={!isListening}
+                  audioUrl={audioUrl}
+                  isLoading={isLoading}
+                  userInput={userInput}
+                  onToggleRecording={handleToggleRecording}
+                  onPlayRecording={playRecording}
+                  onSkipStep={simulateAIResponse}
+                  onSendMessage={() => handleUserMessage(userInput)}
+                  onSaveSession={() => {}}
+                />
               </div>
             </div>
 
@@ -615,9 +336,6 @@ const RolePlayPage = () => {
           </div>
         </div>
       </div>
-
-      {/* Audio Controls */}
-      <audio ref={audioRef} src={audioUrl || ""} />
     </div>
   );
 };
